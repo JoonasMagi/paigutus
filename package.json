@@ -1,0 +1,14 @@
+{
+  "name": "masinate-paigutus",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Masinate paigutus DWG/DXF/SVG joonistele",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@mlightcad/libredwg-web": "^0.6.6",
+    "dxf": "^5.3.1"
+  }
+}

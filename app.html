@@ -1,0 +1,1013 @@
+<!DOCTYPE html>
+<html lang="et">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Masinate Paigutus</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0d0d0d; --panel: #141414; --panel2: #1a1a1a;
+    --border: #252525; --border2: #333;
+    --accent: #e8c547; --accent2: #4a9eff;
+    --text: #ccc; --muted: #555; --dim: #888;
+  }
+  body { background: var(--bg); color: var(--text); font-family: 'Segoe UI', system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* TOOLBAR */
+  #toolbar {
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    padding: 7px 12px;
+    display: flex; align-items: center; gap: 8px;
+    flex-shrink: 0; flex-wrap: wrap;
+  }
+  #toolbar h1 { font-size: 12px; font-weight: 700; color: var(--accent); letter-spacing:.08em; font-family: monospace; white-space: nowrap; }
+  .sep { width:1px; height:20px; background: var(--border2); flex-shrink:0; }
+  .btn {
+    font-size: 11px; padding: 4px 10px; border-radius: 3px;
+    border: 1px solid var(--border2); background: transparent; color: var(--text);
+    cursor: pointer; transition: all .1s; white-space: nowrap; font-family: monospace;
+  }
+  .btn:hover { border-color: var(--accent); color: var(--accent); }
+  .btn.active { background: var(--accent); color: #111; border-color: var(--accent); font-weight: 700; }
+  .btn.danger:hover { border-color: #e04444; color: #e04444; }
+  #file-input, #json-input { display: none; }
+  #status { font-size: 10px; font-family: monospace; color: var(--muted); white-space: nowrap; }
+  #status.ok { color: #44bb66; } #status.err { color: #e04444; } #status.saving { color: var(--accent); }
+  #zoom-info { font-size: 11px; font-family: monospace; color: var(--dim); margin-left: auto; }
+
+  /* MAIN LAYOUT */
+  #main { display: flex; flex: 1; overflow: hidden; }
+
+  /* LAYER PANEL */
+  #layer-panel {
+    width: 200px; min-width: 160px; flex-shrink: 0;
+    background: var(--panel2); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+    transition: width .2s;
+  }
+  #layer-panel.collapsed { width: 0; border: none; }
+  #layer-panel-header {
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+    font-size: 10px; font-family: monospace; color: var(--dim);
+    display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+  }
+  #layer-list { overflow-y: auto; flex: 1; padding: 4px 0; }
+  .layer-item {
+    display: flex; align-items: center; gap: 7px;
+    padding: 4px 10px; cursor: pointer; font-size: 11px;
+    font-family: monospace; color: var(--text);
+    border-radius: 2px; transition: background .1s;
+  }
+  .layer-item:hover { background: rgba(255,255,255,.04); }
+  .layer-eye {
+    width: 14px; height: 14px; flex-shrink: 0;
+    border: 1px solid var(--border2); border-radius: 2px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; background: var(--panel);
+  }
+  .layer-eye.on { background: var(--accent); border-color: var(--accent); color: #111; }
+  .layer-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 10px; }
+  .layer-type { font-size: 9px; color: var(--muted); margin-left: auto; flex-shrink:0; }
+  #layer-actions { padding: 6px 8px; border-top: 1px solid var(--border); display: flex; gap: 5px; flex-shrink:0; }
+  #layer-actions .btn { flex:1; padding:3px 5px; font-size:10px; }
+
+  /* CANVAS */
+  #canvas-wrap {
+    flex: 1; overflow: hidden; position: relative;
+    background: #080808;
+    cursor: grab;
+  }
+  #canvas-wrap.drawing { cursor: crosshair; }
+  #canvas-wrap.panning { cursor: grabbing; }
+  #canvas-wrap.select-mode { cursor: default; }
+
+  #grid-canvas { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+
+  #canvas-inner {
+    position: absolute; top: 0; left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+  }
+  #dvg-layer { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+  #dvg-layer svg { width: 100%; height: 100%; display: block; }
+  #overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+  /* MACHINE BOXES */
+  .mbox {
+    position: absolute; border: 2px solid var(--accent);
+    background: rgba(232,197,71,.1); cursor: move; user-select: none;
+    display: flex; align-items: center; justify-content: center;
+    transition: background .1s; z-index: 10; overflow: hidden;
+  }
+  .mbox:hover { background: rgba(232,197,71,.2); }
+  .mbox.selected { border-color: var(--accent2); background: rgba(74,158,255,.15); z-index: 200 !important; }
+  .mbox-label {
+    font-family: monospace; font-size: 11px; font-weight: 700;
+    color: var(--accent); text-align: center; padding: 3px 5px;
+    word-break: break-word; white-space: pre-line; pointer-events: none;
+    text-shadow: 0 1px 4px #000, 0 0 8px rgba(0,0,0,.9);
+    position: relative; z-index: 1;
+  }
+  .mbox.selected .mbox-label { color: var(--accent2); }
+  .mbox-resize { position: absolute; bottom:0; right:0; width:10px; height:10px; cursor: nwse-resize; background: var(--accent); }
+  .mbox.selected .mbox-resize { background: var(--accent2); }
+  .mbox-del {
+    position: absolute; top:-9px; right:-9px;
+    width:18px; height:18px; border-radius:50%;
+    background: #bb2222; color:#fff; font-size:13px;
+    line-height:18px; text-align:center;
+    display: none; cursor: pointer; border: none;
+  }
+  .mbox.selected .mbox-del { display: block; }
+
+  #draw-ghost {
+    position: absolute; border: 2px dashed var(--accent);
+    background: rgba(232,197,71,.10); pointer-events: none; display: none; z-index: 300;
+  }
+  #draw-ghost .ghost-dims {
+    position: absolute; bottom: -20px; left: 0; right: 0;
+    text-align: center; font-family: monospace; font-size: 11px;
+    color: var(--accent); white-space: nowrap; pointer-events: none;
+    text-shadow: 0 1px 3px #000;
+  }
+
+  /* SCALE LINE */
+  #canvas-wrap.scale-mode { cursor: crosshair; }
+  #scale-line {
+    position: absolute; pointer-events: none; display: none; z-index: 310;
+  }
+  #scale-line svg { position: absolute; top: 0; left: 0; overflow: visible; }
+
+  /* SCALE DIALOG */
+  #scale-dialog {
+    position: fixed; background: var(--panel2);
+    border: 1px solid var(--accent); border-radius: 4px;
+    padding: 14px; z-index: 1000; display: none;
+    flex-direction: column; gap: 8px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.8); min-width: 220px;
+    top: 50%; left: 50%; transform: translate(-50%, -50%);
+  }
+  #scale-dialog label { font-size: 10px; font-family: monospace; color: var(--muted); }
+  #scale-dialog input {
+    font-family: monospace; font-size: 13px;
+    background: #0a0a0a; border: 1px solid var(--border2);
+    color: var(--text); padding: 5px 8px; border-radius: 3px; outline: none; width: 100%;
+  }
+  #scale-dialog input:focus { border-color: var(--accent); }
+  #scale-dialog .eb { display: flex; gap: 6px; }
+  #scale-dialog .eb button { flex:1; font-family:monospace; font-size:11px; padding:5px; border-radius:3px; border:1px solid var(--border2); background:transparent; color:var(--text); cursor:pointer; }
+  #scale-dialog .eb .ok { background:var(--accent); color:#111; border-color:var(--accent); font-weight:700; }
+  #scale-info-display { font-size: 10px; font-family: monospace; color: var(--dim); white-space: nowrap; }
+
+  /* INFO BAR */
+  #infobar {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: rgba(10,10,10,.85); border-top: 1px solid var(--border);
+    padding: 3px 12px; display: flex; gap: 20px; align-items: center;
+    font-size: 10px; font-family: monospace; color: var(--dim);
+    pointer-events: none; z-index: 500;
+  }
+  #infobar span { white-space: nowrap; }
+
+  /* NAME EDITOR */
+  #name-editor {
+    position: fixed; background: var(--panel2);
+    border: 1px solid var(--accent); border-radius: 4px;
+    padding: 11px; z-index: 1000; display: none;
+    flex-direction: column; gap: 7px;
+    box-shadow: 0 8px 40px rgba(0,0,0,.8); min-width: 200px;
+  }
+  #name-editor label { font-size: 9px; font-family: monospace; color: var(--muted); }
+  #name-editor input {
+    font-family: monospace; font-size: 13px;
+    background: #0a0a0a; border: 1px solid var(--border2);
+    color: var(--text); padding: 5px 8px; border-radius: 3px; outline: none; width: 100%;
+  }
+  #name-editor input:focus { border-color: var(--accent); }
+  #name-editor .eb { display: flex; gap: 6px; }
+  #name-editor .eb button { flex:1; font-family:monospace; font-size:11px; padding:5px; border-radius:3px; border:1px solid var(--border2); background:transparent; color:var(--text); cursor:pointer; }
+  #name-editor .eb .ok { background:var(--accent); color:#111; border-color:var(--accent); font-weight:700; }
+
+  /* LOADING */
+  #loading { display:none; position:fixed; inset:0; background:rgba(0,0,0,.7); z-index:2000; align-items:center; justify-content:center; flex-direction:column; gap:12px; }
+  #loading.show { display:flex; }
+  .spinner { width:32px; height:32px; border:2px solid var(--border2); border-top-color:var(--accent); border-radius:50%; animation:spin .7s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg) } }
+  #loading p { font-family:monospace; font-size:12px; color:var(--accent); }
+
+  #no-file-msg { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center; pointer-events:none; z-index:1; }
+  #no-file-msg .big { font-size:48px; }
+  #no-file-msg p { color:var(--muted); font-size:13px; margin-top:8px; }
+
+  /* scrollbar */
+  #layer-list::-webkit-scrollbar { width: 4px; }
+  #layer-list::-webkit-scrollbar-track { background: transparent; }
+  #layer-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <h1>⬛ MASINATE PAIGUTUS</h1>
+  <div class="sep"></div>
+  <label class="btn" for="file-input">📂 Ava DWG / DXF / SVG</label>
+  <input type="file" id="file-input" accept=".dwg,.dxf,.svg,.png,.jpg,.jpeg,.gif,.bmp,.webp,image/*">
+  <div class="sep"></div>
+  <button class="btn active" id="btn-draw" onclick="setMode('draw')">✏️ Kast</button>
+  <button class="btn" id="btn-select" onclick="setMode('select')">↖ Vali</button>
+  <div class="sep"></div>
+  <button class="btn" onclick="toggleLayers()">☰ Kihid</button>
+  <div class="sep"></div>
+  <button class="btn" id="btn-scale" onclick="startScaleMode()" title="Määra mõõtkava: klõpsa kahe punkti vahel ja sisesta tegelik mõõt">📏 Mõõtkava</button>
+  <span id="scale-info-display"></span>
+  <div class="sep"></div>
+  <button class="btn danger" onclick="clearBoxes()">🗑 Kustuta kastid</button>
+  <button class="btn" onclick="exportJSON()">💾 Ekspordi</button>
+  <label class="btn" for="json-input">📥 Impordi</label>
+  <input type="file" id="json-input" accept=".json">
+  <div class="sep"></div>
+  <span id="status"></span>
+  <span id="zoom-info">100%</span>
+  <button class="btn" onclick="fitView()" title="Sobita ekraanile">⊙</button>
+</div>
+
+<div id="main">
+  <div id="layer-panel">
+    <div id="layer-panel-header">
+      <span>KIHID</span>
+      <span id="layer-count" style="color:var(--muted)">0</span>
+    </div>
+    <div id="layer-list"></div>
+    <div id="layer-actions">
+      <button class="btn" onclick="setAllLayers(true)">Kõik</button>
+      <button class="btn" onclick="setAllLayers(false)">Peida</button>
+      <button class="btn" onclick="hideTextLayers()">-Tekst</button>
+    </div>
+  </div>
+
+  <div id="canvas-wrap">
+    <canvas id="grid-canvas"></canvas>
+    <div id="canvas-inner">
+      <div id="dvg-layer"></div>
+      <div id="overlay"></div>
+      <div id="draw-ghost"></div>
+    </div>
+    <div id="no-file-msg">
+      <div class="big">🏭</div>
+      <p>Ava DWG, DXF, SVG või pildifail</p>
+      <p style="margin-top:5px;font-size:11px;color:#333">Lohista = paneeri · Keri = zoom · ✏️ = joonista kast</p>
+    </div>
+  </div>
+</div>
+
+<div id="name-editor">
+  <label>Masina nimi:</label>
+  <input type="text" id="name-input" placeholder="nt. CNC-01" maxlength="50">
+  <div id="size-fields" style="display:none;margin-top:4px">
+    <label>Mõõdud (meetrites):</label>
+    <div style="display:flex;gap:6px;align-items:center;margin-top:3px">
+      <input type="number" id="size-w-input" placeholder="laius" min="0.01" step="0.01" style="flex:1;font-family:monospace;font-size:12px;background:#0a0a0a;border:1px solid var(--border2);color:var(--text);padding:5px 8px;border-radius:3px;outline:none;">
+      <span style="color:var(--muted);font-family:monospace">×</span>
+      <input type="number" id="size-h-input" placeholder="sügavus" min="0.01" step="0.01" style="flex:1;font-family:monospace;font-size:12px;background:#0a0a0a;border:1px solid var(--border2);color:var(--text);padding:5px 8px;border-radius:3px;outline:none;">
+      <span style="color:var(--muted);font-family:monospace;font-size:11px">m</span>
+    </div>
+  </div>
+  <div class="eb">
+    <button onclick="cancelName()">Tühista</button>
+    <button class="ok" onclick="confirmName()">OK</button>
+  </div>
+</div>
+
+<div id="scale-dialog">
+  <label>Joonista joone pikkus reaalses elus:</label>
+  <div style="display:flex;gap:6px;align-items:center">
+    <input type="number" id="scale-input" placeholder="nt. 10" min="0.01" step="0.01" style="flex:1">
+    <select id="scale-unit" style="font-family:monospace;font-size:12px;background:#0a0a0a;border:1px solid var(--border2);color:var(--text);padding:5px;border-radius:3px;">
+      <option value="mm">mm</option>
+      <option value="m" selected>m</option>
+    </select>
+  </div>
+  <div class="eb">
+    <button onclick="cancelScale()">Tühista</button>
+    <button class="ok" onclick="confirmScale()">OK</button>
+  </div>
+</div>
+
+<div id="loading"><div class="spinner"></div><p id="load-txt">Parsin...</p></div>
+
+<div id="infobar">
+  <span id="coord-display">x: 0  y: 0</span>
+  <span id="grid-display"></span>
+  <span id="machine-count">0 masinat</span>
+</div>
+
+<script>
+// ── STATE ──
+let mode = 'draw';
+let panX = 0, panY = 0, scale = 1;
+let isPanning = false, panStart = null;
+let planW = 2000, planH = 1500, hasPlan = false;
+let machines = [], nextId = 1, selectedId = null;
+let isDrawing = false, drawStart = null;
+let isDragging = false, dragId = null, dragOff = null;
+let isResizing = false, resizeId = null, resizeOrig = null;
+let pendingBox = null;
+let saveTimer = null;
+let currentSvgData = null;
+let layerVisibility = {}; // layer name -> bool
+let layerInfo = [];       // [{name, isText, hasText}]
+let layerPanelOpen = true;
+let pxPerMm = null;          // pixels-per-mm on the plan (null = no scale set)
+let scaleMode = false;
+let scaleStart = null, scaleEnd = null;
+let scalePxDist = 0;
+
+// ── ELEMENTS ──
+const wrap       = document.getElementById('canvas-wrap');
+const inner      = document.getElementById('canvas-inner');
+const dvgLayer   = document.getElementById('dvg-layer');
+const overlay    = document.getElementById('overlay');
+const ghost      = document.getElementById('draw-ghost');
+const nameEditor = document.getElementById('name-editor');
+const nameInput  = document.getElementById('name-input');
+const statusEl   = document.getElementById('status');
+const zoomInfoEl = document.getElementById('zoom-info');
+const noFileMsg  = document.getElementById('no-file-msg');
+const loading    = document.getElementById('loading');
+const gridCanvas = document.getElementById('grid-canvas');
+const coordEl    = document.getElementById('coord-display');
+const gridEl     = document.getElementById('grid-display');
+const machineCountEl = document.getElementById('machine-count');
+const layerList  = document.getElementById('layer-list');
+const layerPanel = document.getElementById('layer-panel');
+
+// ── GRID ──
+function drawGrid() {
+  const dpr = window.devicePixelRatio || 1;
+  const W = wrap.clientWidth, H = wrap.clientHeight;
+  gridCanvas.width = W * dpr; gridCanvas.height = H * dpr;
+  gridCanvas.style.width = W + 'px'; gridCanvas.style.height = H + 'px';
+  const ctx = gridCanvas.getContext('2d');
+  ctx.scale(dpr, dpr); ctx.clearRect(0, 0, W, H);
+
+  const targetPx = 70;
+  const rawUnit = targetPx / scale;
+  const mag = Math.pow(10, Math.floor(Math.log10(rawUnit)));
+  const norm = rawUnit / mag;
+  let unit = norm < 1.5 ? mag : norm < 3.5 ? 2*mag : norm < 7.5 ? 5*mag : 10*mag;
+  const px = unit * scale;
+
+  // Minor grid
+  const sx = panX - Math.ceil(panX/px)*px;
+  const sy = panY - Math.ceil(panY/px)*px;
+  ctx.strokeStyle = 'rgba(255,255,255,0.04)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x=sx; x<W; x+=px) { ctx.moveTo(Math.round(x)+.5, 0); ctx.lineTo(Math.round(x)+.5, H); }
+  for (let y=sy; y<H; y+=px) { ctx.moveTo(0, Math.round(y)+.5); ctx.lineTo(W, Math.round(y)+.5); }
+  ctx.stroke();
+
+  // Major grid (every 5)
+  const bpx = px*5, bsx = panX - Math.ceil(panX/bpx)*bpx, bsy = panY - Math.ceil(panY/bpx)*bpx;
+  ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x=bsx; x<W; x+=bpx) { ctx.moveTo(Math.round(x)+.5, 0); ctx.lineTo(Math.round(x)+.5, H); }
+  for (let y=bsy; y<H; y+=bpx) { ctx.moveTo(0, Math.round(y)+.5); ctx.lineTo(W, Math.round(y)+.5); }
+  ctx.stroke();
+
+  const unitStr = unit >= 1000 ? (unit/1000).toFixed(1)+'m' : unit+'mm';
+  gridEl.textContent = `ruudustik: ${unitStr}`;
+}
+
+// ── TRANSFORM ──
+function applyTransform() {
+  inner.style.transform = `translate(${panX.toFixed(1)}px,${panY.toFixed(1)}px) scale(${scale})`;
+  zoomInfoEl.textContent = Math.round(scale*100) + '%';
+  drawGrid();
+  updateSvgStroke();
+  // Re-render all boxes so scale-compensated text/borders update
+  machines.forEach(m => renderBox(m));
+}
+
+function updateSvgStroke() {
+  const svg = dvgLayer.querySelector('svg');
+  if (!svg) return;
+  // SVG is inside a div of planW×planH px, scaled by CSS `scale`.
+  // viewBox width = vbW SVG units maps to planW px before CSS scale.
+  // On screen: 1 SVG unit = scale * planW/vbW  pixels.
+  // We want 0.5px on screen => strokeWidth = 0.5 / (scale * planW/vbW)
+  const vb = svg.getAttribute('viewBox');
+  let vbW = planW;
+  if (vb) { const p = vb.trim().split(/[\s,]+/); if (p.length >= 4) vbW = parseFloat(p[2]); }
+  const pxPerSvgUnit = scale * planW / vbW;
+  const sw = (0.5 / pxPerSvgUnit).toFixed(4);
+
+  // Apply via inline style on the SVG element itself — most reliable
+  svg.style.setProperty('--sw', sw);
+
+  // Strip any inline stroke-width from all elements (once)
+  if (!svg.dataset.cleaned) {
+    svg.querySelectorAll('line,polyline,polygon,path,circle,ellipse,rect').forEach(el => {
+      el.removeAttribute('stroke-width');
+      el.style.removeProperty('stroke-width');
+      el.removeAttribute('stroke');
+      el.style.removeProperty('stroke');
+      el.removeAttribute('fill');
+      el.style.removeProperty('fill');
+    });
+    svg.querySelectorAll('text,tspan').forEach(el => {
+      el.removeAttribute('stroke');
+      el.style.removeProperty('stroke');
+    });
+    svg.dataset.cleaned = '1';
+  }
+
+  // Use a dedicated style element with high specificity
+  let styleEl = svg.querySelector('#dyn-stroke');
+  if (!styleEl) {
+    styleEl = document.createElementNS('http://www.w3.org/2000/svg', 'style');
+    styleEl.id = 'dyn-stroke';
+    svg.insertBefore(styleEl, svg.firstChild);
+  }
+  // Override ALL geometry elements with !important to beat any remaining specificity
+  styleEl.textContent =
+    `line, polyline, polygon, path, circle, ellipse, rect {` +
+    `stroke: #ffffff !important; stroke-width: ${sw} !important; fill: none !important; vector-effect: non-scaling-stroke; }` +
+    `text, tspan { fill: #cccccc !important; stroke: none !important; }`;
+}
+
+function fitView() {
+  if (!hasPlan) { scale=1; panX=40; panY=40; applyTransform(); return; }
+  const ww = wrap.clientWidth, wh = wrap.clientHeight;
+  scale = Math.min(ww/planW, wh/planH) * 0.92;
+  panX = (ww - planW*scale) / 2;
+  panY = (wh - planH*scale) / 2;
+  applyTransform();
+}
+
+// ── COORDS ──
+function clientToCanvas(e) {
+  const r = wrap.getBoundingClientRect();
+  return { x: (e.clientX - r.left - panX) / scale, y: (e.clientY - r.top - panY) / scale };
+}
+
+wrap.addEventListener('mousemove', e => {
+  const c = clientToCanvas(e);
+  if (pxPerMm) {
+    const xm = (c.x / pxPerMm / 1000).toFixed(2), ym = (c.y / pxPerMm / 1000).toFixed(2);
+    coordEl.textContent = `x: ${xm}m  y: ${ym}m`;
+  } else {
+    coordEl.textContent = `x: ${c.x.toFixed(0)}  y: ${c.y.toFixed(0)}`;
+  }
+  if (isPanning) {
+    panX = e.clientX - panStart.x; panY = e.clientY - panStart.y;
+    applyTransform(); return;
+  }
+  if (isDrawing) positionGhost(drawStart, clientToCanvas(e));
+  if (isDragging && dragId !== null) {
+    const m = machines.find(m=>m.id===dragId);
+    if (m) { const c=clientToCanvas(e); m.x=c.x-dragOff.x; m.y=c.y-dragOff.y; renderBox(m); }
+  }
+  if (isResizing && resizeId !== null) {
+    const m = machines.find(m=>m.id===resizeId);
+    if (m) { const c=clientToCanvas(e); m.w=Math.max(20,c.x-resizeOrig.x); m.h=Math.max(15,c.y-resizeOrig.y); renderBox(m); }
+  }
+});
+
+// ── ZOOM ──
+wrap.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = wrap.getBoundingClientRect();
+  const mx = e.clientX-r.left, my = e.clientY-r.top;
+  const f = e.deltaY < 0 ? 1.13 : 1/1.13;
+  const ns = Math.min(500, Math.max(0.005, scale*f));
+  panX = mx - (mx-panX)*(ns/scale);
+  panY = my - (my-panY)*(ns/scale);
+  scale = ns; applyTransform();
+}, { passive: false });
+
+// ── MOUSE DOWN — pan always on left drag (unless drawing mode + left btn on canvas) ──
+wrap.addEventListener('mousedown', e => {
+  if (e.target.closest('.mbox') || e.target.closest('#name-editor')) return;
+
+  // Right mouse = always pan
+  if (e.button === 1 || e.button === 2) {
+    e.preventDefault(); startPan(e); return;
+  }
+
+  if (e.button !== 0) return;
+
+  // Scale mode: click two points
+  if (scaleMode) {
+    e.preventDefault();
+    const c = clientToCanvas(e);
+    if (!scaleStart) {
+      scaleStart = c;
+      setStatus('Klõpsa teine punkt...','saving');
+    } else {
+      scaleEnd = c;
+      scalePxDist = Math.hypot(scaleEnd.x-scaleStart.x, scaleEnd.y-scaleStart.y);
+      scaleMode = false;
+      wrap.classList.remove('scale-mode');
+      document.getElementById('btn-scale').classList.remove('active');
+      showScaleDialog();
+    }
+    return;
+  }
+
+  // In draw mode: left mouse on canvas = draw box
+  if (mode === 'draw') {
+    e.preventDefault();
+    isDrawing = true; drawStart = clientToCanvas(e);
+    ghost.style.display = 'block';
+    positionGhost(drawStart, drawStart);
+    return;
+  }
+
+  // In select mode: left drag = pan
+  if (mode === 'select') {
+    startPan(e);
+  }
+});
+
+function startPan(e) {
+  isPanning = true;
+  wrap.classList.add('panning');
+  panStart = { x: e.clientX - panX, y: e.clientY - panY };
+}
+
+wrap.addEventListener('contextmenu', e => e.preventDefault());
+
+window.addEventListener('mouseup', e => {
+  if (isPanning) { isPanning = false; wrap.classList.remove('panning'); return; }
+  if (isDrawing) {
+    isDrawing = false; ghost.style.display = 'none';
+    const cur = clientToCanvas(e);
+    const x=Math.min(drawStart.x,cur.x), y=Math.min(drawStart.y,cur.y);
+    const w=Math.abs(cur.x-drawStart.x), h=Math.abs(cur.y-drawStart.y);
+    if (w > 12/scale && h > 10/scale) {
+      pendingBox = {x,y,w,h};
+      showNameEditor(e.clientX, e.clientY, '', true);
+    } else {
+      // Tiny drag or click — allow placing a box with typed dimensions
+      const defaultW = pxPerMm ? 1000 * pxPerMm : 100;  // 1m or 100px
+      const defaultH = pxPerMm ? 1000 * pxPerMm : 100;
+      pendingBox = {x: drawStart.x - defaultW/2, y: drawStart.y - defaultH/2, w: defaultW, h: defaultH};
+      showNameEditor(e.clientX, e.clientY, '', true);
+    }
+  }
+  if (isDragging || isResizing) scheduleSave();
+  isDragging = isResizing = false;
+});
+
+function positionGhost(a, b) {
+  const x=Math.min(a.x,b.x), y=Math.min(a.y,b.y);
+  const w=Math.abs(b.x-a.x), h=Math.abs(b.y-a.y);
+  ghost.style.left   = x+'px';
+  ghost.style.top    = y+'px';
+  ghost.style.width  = w+'px';
+  ghost.style.height = h+'px';
+  // Show dimensions
+  let dimEl = ghost.querySelector('.ghost-dims');
+  if (!dimEl) { dimEl = document.createElement('div'); dimEl.className='ghost-dims'; ghost.appendChild(dimEl); }
+  if (pxPerMm) {
+    const wm=(w/pxPerMm/1000).toFixed(2), hm=(h/pxPerMm/1000).toFixed(2);
+    dimEl.textContent = `${wm} m × ${hm} m`;
+  } else {
+    dimEl.textContent = `${w.toFixed(0)} × ${h.toFixed(0)} px`;
+  }
+}
+
+// ── MODE ──
+function setMode(m) {
+  mode = m;
+  // Cancel scale mode if switching
+  if (scaleMode) { scaleMode = false; scaleStart = null; wrap.classList.remove('scale-mode'); document.getElementById('btn-scale').classList.remove('active'); }
+  document.getElementById('btn-draw').classList.toggle('active', m==='draw');
+  document.getElementById('btn-select').classList.toggle('active', m==='select');
+  wrap.classList.toggle('drawing', m==='draw');
+  wrap.classList.toggle('select-mode', m==='select');
+  deselectAll();
+}
+
+// ── SCALE ──
+function startScaleMode() {
+  if (scaleMode) { // toggle off
+    scaleMode = false; scaleStart = null;
+    wrap.classList.remove('scale-mode');
+    document.getElementById('btn-scale').classList.remove('active');
+    setStatus('');
+    return;
+  }
+  scaleMode = true; scaleStart = null; scaleEnd = null;
+  wrap.classList.add('scale-mode');
+  document.getElementById('btn-scale').classList.add('active');
+  setStatus('Klõpsa esimene punkt...','saving');
+}
+
+function showScaleDialog() {
+  document.getElementById('scale-dialog').style.display = 'flex';
+  const inp = document.getElementById('scale-input');
+  inp.value = '';
+  inp.focus();
+}
+
+function cancelScale() {
+  document.getElementById('scale-dialog').style.display = 'none';
+  scaleStart = scaleEnd = null; scalePxDist = 0;
+  setStatus('');
+}
+
+document.getElementById('scale-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmScale();
+  if (e.key === 'Escape') cancelScale();
+});
+
+function confirmScale() {
+  const val = parseFloat(document.getElementById('scale-input').value);
+  const unit = document.getElementById('scale-unit').value;
+  if (!val || val <= 0 || scalePxDist <= 0) { cancelScale(); return; }
+  // Convert to mm
+  const realMm = unit === 'm' ? val * 1000 : val;
+  pxPerMm = scalePxDist / realMm;
+  document.getElementById('scale-dialog').style.display = 'none';
+  updateScaleDisplay();
+  setStatus('✓ Mõõtkava määratud','ok');
+  setTimeout(() => setStatus(''), 2000);
+  scheduleSave();
+}
+
+function updateScaleDisplay() {
+  const el = document.getElementById('scale-info-display');
+  if (!pxPerMm) { el.textContent = ''; return; }
+  // Show as "1px = X mm" or as a ratio
+  const mmPer100px = (100 / pxPerMm).toFixed(1);
+  el.textContent = `📏 ${mmPer100px}mm/100px`;
+}
+
+// ── LAYER PANEL ──
+function toggleLayers() {
+  layerPanelOpen = !layerPanelOpen;
+  layerPanel.classList.toggle('collapsed', !layerPanelOpen);
+}
+
+function renderLayerList() {
+  layerList.innerHTML = '';
+  document.getElementById('layer-count').textContent = layerInfo.length;
+  layerInfo.forEach(lyr => {
+    const vis = layerVisibility[lyr.name] !== false;
+    const item = document.createElement('div');
+    item.className = 'layer-item';
+    item.title = lyr.name;
+    item.innerHTML = `
+      <div class="layer-eye ${vis?'on':''}">${vis?'●':'○'}</div>
+      <div class="layer-name">${lyr.name}</div>
+      <div class="layer-type">${lyr.isText?'T':''}</div>
+    `;
+    item.addEventListener('click', () => {
+      layerVisibility[lyr.name] = !vis;
+      applyLayerVisibility();
+      renderLayerList();
+    });
+    layerList.appendChild(item);
+  });
+}
+
+function applyLayerVisibility() {
+  const svg = dvgLayer.querySelector('svg');
+  if (!svg) return;
+  svg.querySelectorAll('[data-layer]').forEach(g => {
+    const lyr = g.getAttribute('data-layer');
+    g.style.display = layerVisibility[lyr] === false ? 'none' : '';
+  });
+}
+
+function setAllLayers(visible) {
+  layerInfo.forEach(l => layerVisibility[l.name] = visible);
+  applyLayerVisibility(); renderLayerList();
+}
+
+function hideTextLayers() {
+  layerInfo.forEach(l => { if (l.isText || l.hasText) layerVisibility[l.name] = false; });
+  applyLayerVisibility(); renderLayerList();
+}
+
+// ── FILE OPEN ──
+document.getElementById('file-input').addEventListener('change', async e => {
+  const file = e.target.files[0]; if (!file) return;
+  const ext = file.name.split('.').pop().toLowerCase();
+
+  if (ext === 'dwg' || ext === 'dxf') {
+    loading.classList.add('show');
+    document.getElementById('load-txt').textContent = 'Parsin ' + ext.toUpperCase() + '...';
+    setStatus('');
+    try {
+      const buf = await file.arrayBuffer();
+      const resp = await fetch('/parse-dwg', { method:'POST', headers:{'Content-Type':'application/octet-stream'}, body:buf });
+      const data = await resp.json();
+      if (data.error) throw new Error(data.error);
+      loadSVGData(data, file.name);
+    } catch(err) {
+      setStatus('❌ ' + err.message, 'err');
+      alert('Viga: ' + err.message);
+    } finally { loading.classList.remove('show'); }
+
+  } else if (ext === 'svg') {
+    const text = await file.text();
+    const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+    const svg = doc.querySelector('svg');
+    if (svg) {
+      let w = parseFloat(svg.getAttribute('width'))||800;
+      let h = parseFloat(svg.getAttribute('height'))||600;
+      const vb = svg.getAttribute('viewBox');
+      if (vb) { const p=vb.trim().split(/[\s,]+/); if(p.length>=4){w=parseFloat(p[2]);h=parseFloat(p[3]);} }
+      loadSVGData({ svg: text, width: w, height: h, layers: [] }, file.name);
+    }
+  } else {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      planW=img.naturalWidth; planH=img.naturalHeight; hasPlan=true;
+      inner.style.width=planW+'px'; inner.style.height=planH+'px';
+      overlay.style.width=planW+'px'; overlay.style.height=planH+'px';
+      dvgLayer.innerHTML = `<img src="${url}" style="width:${planW}px;height:${planH}px;display:block;">`;
+      noFileMsg.style.display='none';
+      setStatus('✓ '+file.name,'ok');
+      currentSvgData={svg:null,width:planW,height:planH,layers:[]};
+      fitView(); scheduleSave();
+    };
+    img.src = url;
+  }
+  e.target.value = '';
+});
+
+function loadSVGData(data, filename) {
+  const { svg, width, height, layers: lyrInfo } = data;
+  const doc = new DOMParser().parseFromString(svg, 'image/svg+xml');
+  const svgEl = doc.querySelector('svg');
+  if (!svgEl) { setStatus('❌ SVG viga','err'); return; }
+  if (!svgEl.getAttribute('viewBox')) svgEl.setAttribute('viewBox', `0 0 ${width} ${height}`);
+  svgEl.removeAttribute('width'); svgEl.removeAttribute('height');
+  svgEl.style.width='100%'; svgEl.style.height='100%';
+
+  planW=width; planH=height; hasPlan=true;
+  inner.style.width=width+'px'; inner.style.height=height+'px';
+  overlay.style.width=width+'px'; overlay.style.height=height+'px';
+  dvgLayer.innerHTML=''; dvgLayer.appendChild(svgEl);
+  updateSvgStroke();
+  noFileMsg.style.display='none';
+  if (filename) setStatus('✓ '+filename,'ok');
+
+  // Setup layers
+  layerInfo = lyrInfo || [];
+  // Default: hide text-only layers
+  layerInfo.forEach(l => {
+    if (layerVisibility[l.name] === undefined) {
+      layerVisibility[l.name] = !(l.isText);
+    }
+  });
+  applyLayerVisibility();
+  renderLayerList();
+
+  currentSvgData = { svg, width, height, layers: lyrInfo };
+  fitView();
+  scheduleSave();
+
+}
+
+// ── BOXES ──
+function updateMachineCount() {
+  machineCountEl.textContent = machines.length + ' masinat';
+}
+
+function createBoxEl(m) {
+  const el = document.createElement('div');
+  el.className='mbox'; el.dataset.id=m.id; el.style.zIndex=m.id+10;
+  const lbl=document.createElement('div'); lbl.className='mbox-label'; el.appendChild(lbl);
+  const rh=document.createElement('div'); rh.className='mbox-resize'; el.appendChild(rh);
+  const db=document.createElement('button'); db.className='mbox-del'; db.textContent='×';
+  db.addEventListener('click', ev=>{ev.stopPropagation();deleteMachine(m.id);scheduleSave();});
+  el.appendChild(db);
+
+  el.addEventListener('mousedown', ev=>{
+    if (ev.target===rh) {
+      ev.stopPropagation(); isResizing=true; resizeId=m.id;
+      resizeOrig={x:m.x, y:m.y}; return;
+    }
+    if (mode==='select') {
+      ev.stopPropagation(); selectBox(m.id);
+      isDragging=true; dragId=m.id;
+      const c=clientToCanvas(ev); dragOff={x:c.x-m.x, y:c.y-m.y};
+    }
+  });
+  el.addEventListener('dblclick', ev=>{
+    ev.stopPropagation(); selectBox(m.id);
+    showNameEditor(ev.clientX, ev.clientY, m.name, false);
+  });
+  overlay.appendChild(el);
+  renderBox(m);
+}
+
+function renderBox(m) {
+  const el = overlay.querySelector(`[data-id="${m.id}"]`);
+  if (!el) return;
+  el.style.left=m.x+'px'; el.style.top=m.y+'px';
+  el.style.width=m.w+'px'; el.style.height=m.h+'px';
+  // Scale-compensate text and borders so they are readable at any zoom
+  const invS = 1 / scale;
+  el.style.borderWidth = Math.max(1, 2 * invS).toFixed(1) + 'px';
+  const lbl = el.querySelector('.mbox-label');
+  const fontSize = Math.max(10, 13 * invS).toFixed(1);
+  lbl.style.fontSize = fontSize + 'px';
+  lbl.style.padding = (3*invS).toFixed(0)+'px '+(5*invS).toFixed(0)+'px';
+  let label = m.name;
+  if (pxPerMm) {
+    const wm=(m.w/pxPerMm/1000).toFixed(1), hm=(m.h/pxPerMm/1000).toFixed(1);
+    label += `\n${wm}\u00d7${hm}m`;
+  }
+  lbl.textContent=label;
+  // Resize handle
+  const rh = el.querySelector('.mbox-resize');
+  if (rh) { rh.style.width=(10*invS).toFixed(0)+'px'; rh.style.height=(10*invS).toFixed(0)+'px'; }
+  // Delete button
+  const db = el.querySelector('.mbox-del');
+  if (db) {
+    const ds = Math.max(18, 18*invS).toFixed(0);
+    db.style.width=ds+'px'; db.style.height=ds+'px'; db.style.lineHeight=ds+'px';
+    db.style.fontSize=(13*invS).toFixed(0)+'px';
+    db.style.top=(-parseFloat(ds)/2).toFixed(0)+'px'; db.style.right=(-parseFloat(ds)/2).toFixed(0)+'px';
+  }
+}
+
+function selectBox(id) {
+  deselectAll(); selectedId=id;
+  overlay.querySelector(`[data-id="${id}"]`)?.classList.add('selected');
+}
+function deselectAll() {
+  selectedId=null;
+  overlay.querySelectorAll('.mbox.selected').forEach(el=>el.classList.remove('selected'));
+}
+function deleteMachine(id) {
+  machines=machines.filter(m=>m.id!==id);
+  overlay.querySelector(`[data-id="${id}"]`)?.remove();
+  if (selectedId===id) selectedId=null;
+  updateMachineCount();
+}
+function clearBoxes() {
+  if (!machines.length||!confirm('Kustutada kõik kastikesed?')) return;
+  machines=[]; overlay.innerHTML=''; updateMachineCount(); scheduleSave();
+}
+
+wrap.addEventListener('click', e=>{
+  if (mode==='select' && !e.target.closest('.mbox')) deselectAll();
+});
+
+// ── NAME EDITOR ──
+function showNameEditor(cx, cy, cur, isNew) {
+  nameEditor.style.display='flex'; nameInput.value=cur||'';
+  nameEditor.dataset.isNew=isNew?'1':'0';
+  const sizeFields = document.getElementById('size-fields');
+  const wInp = document.getElementById('size-w-input');
+  const hInp = document.getElementById('size-h-input');
+  // Show size fields when creating new box and scale is set
+  if (isNew && pxPerMm) {
+    sizeFields.style.display = 'block';
+    // Pre-fill with drawn box dimensions
+    if (pendingBox) {
+      wInp.value = (pendingBox.w / pxPerMm / 1000).toFixed(2);
+      hInp.value = (pendingBox.h / pxPerMm / 1000).toFixed(2);
+    } else { wInp.value=''; hInp.value=''; }
+  } else if (isNew) {
+    sizeFields.style.display = 'block';
+    wInp.value=''; hInp.value='';
+  } else {
+    // Editing existing — also allow resizing
+    sizeFields.style.display = pxPerMm ? 'block' : 'none';
+    if (pxPerMm) {
+      const m = machines.find(m=>m.id===selectedId);
+      if (m) { wInp.value=(m.w/pxPerMm/1000).toFixed(2); hInp.value=(m.h/pxPerMm/1000).toFixed(2); }
+    }
+  }
+  setTimeout(()=>{
+    let l=cx+12, t=cy+12;
+    if (l+nameEditor.offsetWidth>window.innerWidth) l=cx-nameEditor.offsetWidth-12;
+    if (t+nameEditor.offsetHeight>window.innerHeight) t=cy-nameEditor.offsetHeight-12;
+    nameEditor.style.left=l+'px'; nameEditor.style.top=t+'px';
+    nameInput.focus(); nameInput.select();
+  },0);
+}
+nameInput.addEventListener('keydown', e=>{
+  if(e.key==='Enter') confirmName(); if(e.key==='Escape') cancelName();
+});
+document.getElementById('size-w-input').addEventListener('keydown', e=>{
+  if(e.key==='Enter') confirmName(); if(e.key==='Escape') cancelName();
+});
+document.getElementById('size-h-input').addEventListener('keydown', e=>{
+  if(e.key==='Enter') confirmName(); if(e.key==='Escape') cancelName();
+});
+function confirmName() {
+  const name=nameInput.value.trim()||'Masin';
+  nameEditor.style.display='none';
+  const wVal = parseFloat(document.getElementById('size-w-input').value);
+  const hVal = parseFloat(document.getElementById('size-h-input').value);
+  if (nameEditor.dataset.isNew==='1') {
+    // If user entered dimensions in meters
+    if (wVal > 0 && hVal > 0 && pxPerMm) {
+      pendingBox.w = wVal * 1000 * pxPerMm;
+      pendingBox.h = hVal * 1000 * pxPerMm;
+    } else if (wVal > 0 && hVal > 0 && !pxPerMm) {
+      // No scale set — treat entered values as pixels-per-meter, set scale from drawing
+      // Just use pixel values as-is from drawn box
+    }
+    const m={id:nextId++, name, ...pendingBox};
+    machines.push(m); createBoxEl(m); pendingBox=null;
+  } else {
+    const m=machines.find(m=>m.id===selectedId);
+    if(m){
+      m.name=name;
+      // Update dimensions if changed
+      if (wVal > 0 && hVal > 0 && pxPerMm) {
+        m.w = wVal * 1000 * pxPerMm;
+        m.h = hVal * 1000 * pxPerMm;
+      }
+      renderBox(m);
+    }
+  }
+  updateMachineCount(); scheduleSave();
+}
+function cancelName(){nameEditor.style.display='none'; pendingBox=null;}
+
+// ── SAVE / LOAD ──
+function setStatus(msg,type=''){statusEl.textContent=msg; statusEl.className=type;}
+function scheduleSave(){
+  clearTimeout(saveTimer); setStatus('● salvestab...','saving');
+  saveTimer=setTimeout(doSave, 900);
+}
+async function doSave(){
+  try {
+    await fetch('/state',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({machines,nextId,planW,planH,svgData:currentSvgData,layerVisibility,pxPerMm})});;
+    setStatus('✓ salvestatud','ok');
+    setTimeout(()=>setStatus(''),2000);
+  } catch(e){setStatus('❌ salvestamine ebaõnnestus','err');}
+}
+
+async function loadSavedState(){
+  try {
+    const resp=await fetch('/state'); const state=await resp.json();
+    if (!state||(!state.machines?.length && !state.svgData)) return;
+
+    if (state.layerVisibility) layerVisibility=state.layerVisibility;
+    if (state.pxPerMm) { pxPerMm=state.pxPerMm; updateScaleDisplay(); }
+
+    if (state.svgData?.svg) {
+      loadSVGData(state.svgData, null);
+    } else if (state.planW) {
+      planW=state.planW; planH=state.planH; hasPlan=true;
+      inner.style.width=planW+'px'; inner.style.height=planH+'px';
+      overlay.style.width=planW+'px'; overlay.style.height=planH+'px';
+      noFileMsg.style.display='none';
+    }
+
+    if (state.machines?.length) {
+      machines=state.machines;
+      nextId=state.nextId||(Math.max(...machines.map(m=>m.id))+1);
+      machines.forEach(m=>createBoxEl(m));
+      updateMachineCount();
+    }
+    if (hasPlan) fitView();
+    setStatus('✓ laaditud','ok');
+    setTimeout(()=>setStatus(''),2000);
+  } catch(e){}
+}
+
+// ── EXPORT / IMPORT ──
+function exportJSON(){
+  const blob=new Blob([JSON.stringify({machines,planW,planH},null,2)],{type:'application/json'});
+  const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='masinate-asukohad.json'; a.click();
+}
+document.getElementById('json-input').addEventListener('change', e=>{
+  const file=e.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=ev=>{
+    try {
+      const data=JSON.parse(ev.target.result);
+      if(data.machines){
+        overlay.innerHTML=''; machines=data.machines;
+        let maxId=0; machines.forEach(m=>{if(m.id>maxId)maxId=m.id; createBoxEl(m);}); nextId=maxId+1;
+        updateMachineCount(); scheduleSave();
+      }
+    } catch{alert('Vigane JSON fail');}
+  };
+  reader.readAsText(file); e.target.value='';
+});
+
+// ── INIT ──
+new ResizeObserver(()=>drawGrid()).observe(wrap);
+setMode('draw');
+applyTransform();
+loadSavedState();
+</script>
+</body>
+</html>

@@ -8,12 +8,12 @@ Skript asub `scripts/setup_vps.sh` ja paigaldab Node.js, loob deploy-kasutaja, k
 Näide käivitamiseks (VPS-is, `sudo`):
 
 ```bash
-sudo bash scripts/setup_vps.sh https://github.com/JoonasMagi/paigutus.git /opt/paigutus deploy 3000
+sudo bash scripts/setup_vps.sh https://github.com/JoonasMagi/paigutus.git /var/www/paigutus deploy 3000
 ```
 
 Parameetrid:
 - `git_repo_url` (valikuline) — GitHub repo URL, vaikimisi `https://github.com/JoonasMagi/paigutus.git`
-- `app_dir` (valikuline) — rakenduse asukoht VPS-is, vaikimisi `/opt/paigutus`
+- `app_dir` (valikuline) — rakenduse asukoht VPS-is, vaikimisi `/var/www/paigutus`
 - `deploy_user` (valikuline) — süsteemi kasutaja, vastu võtab repo failide omandi, vaikimisi `deploy`
 - `port` (valikuline) — teenuse kuulamise port, vaikimisi `3000`
 

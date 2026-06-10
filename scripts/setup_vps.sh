@@ -6,7 +6,7 @@ set -euo pipefail
 # Example: sudo bash setup_vps.sh https://github.com/JoonasMagi/paigutus.git /opt/paigutus deploy 3000
 
 REPO_URL="${1:-https://github.com/JoonasMagi/paigutus.git}"
-APP_DIR="${2:-/opt/paigutus}"
+APP_DIR="${2:-/var/www/paigutus}"
 DEPLOY_USER="${3:-deploy}"
 PORT="${4:-3000}"
 NODE_SETUP="18.x"

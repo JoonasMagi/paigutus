@@ -7,13 +7,22 @@ import path from 'path';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = 3000;
 const SAVE_FILE = path.join(__dirname, 'masinate-andmed.json');
+const LIBREDWG_WASM = path.join(__dirname, 'node_modules', '@mlightcad', 'libredwg-web', 'wasm', 'libredwg-web.wasm');
 
 let libredwg = null;
 const origErr = console.error.bind(console);
 console.error = (...a) => { if (typeof a[0] === 'string' && a[0].includes('error code')) return; origErr(...a); };
 
 async function getLib() {
-  if (!libredwg) libredwg = await LibreDwg.create('./node_modules/@mlightcad/libredwg-web/wasm/');
+  if (!libredwg) {
+    const originalProcessType = process.type;
+    try {
+      process.type = 'renderer';
+      libredwg = await LibreDwg.create(`http://127.0.0.1:${PORT}`);
+    } finally {
+      process.type = originalProcessType;
+    }
+  }
   return libredwg;
 }
 
@@ -162,6 +171,15 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/state') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(loadState())); return;
+  }
+  if (req.method === 'GET' && url.pathname === '/libredwg-web.wasm') {
+    const wasm = readFileSync(LIBREDWG_WASM);
+    res.writeHead(200, {
+      'Content-Type': 'application/wasm',
+      'Content-Length': wasm.length,
+      'Cache-Control': 'no-cache'
+    });
+    res.end(wasm); return;
   }
   if (req.method === 'POST' && url.pathname === '/state') {
     const chunks = []; req.on('data', c => chunks.push(c));

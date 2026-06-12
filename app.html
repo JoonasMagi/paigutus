@@ -80,6 +80,7 @@
     cursor: grab;
   }
   #canvas-wrap.drawing { cursor: crosshair; }
+  #canvas-wrap.line-mode { cursor: default; }
   #canvas-wrap.panning { cursor: grabbing; }
   #canvas-wrap.select-mode { cursor: default; }
 
@@ -126,11 +127,46 @@
     position: absolute; border: 2px dashed var(--accent);
     background: rgba(232,197,71,.10); pointer-events: none; display: none; z-index: 300;
   }
+  #draw-ghost.line-mode {
+    border: none;
+    background: transparent;
+  }
   #draw-ghost .ghost-dims {
     position: absolute; bottom: -20px; left: 0; right: 0;
     text-align: center; font-family: monospace; font-size: 11px;
     color: var(--accent); white-space: nowrap; pointer-events: none;
     text-shadow: 0 1px 3px #000;
+  }
+  #draw-ghost .ghost-line {
+    width: 100%; height: 100%; display: block; overflow: visible;
+  }
+  #draw-ghost .ghost-line line {
+    stroke: var(--accent);
+    stroke-width: 2;
+    stroke-dasharray: 8 6;
+    vector-effect: non-scaling-stroke;
+  }
+
+  /* LINES */
+  #line-layer {
+    position: absolute; inset: 0; pointer-events: none; z-index: 8;
+  }
+  #line-layer svg { width: 100%; height: 100%; display: block; overflow: visible; pointer-events: none; }
+  #line-layer line {
+    stroke: var(--accent) !important;
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+    pointer-events: stroke;
+    cursor: pointer;
+  }
+  #line-layer line.selected { stroke: var(--accent) !important; }
+
+  .line-delete-marker {
+    position: absolute; width: 18px; height: 18px; border-radius: 50%;
+    border: none; background: #bb2222; color: #fff; font-size: 14px;
+    line-height: 18px; text-align: center; cursor: pointer; display: none;
+    z-index: 320; pointer-events: auto;
+    box-shadow: 0 2px 8px rgba(0,0,0,.5);
   }
 
   /* SCALE LINE */
@@ -216,6 +252,7 @@
   <input type="file" id="file-input" accept=".dwg,.dxf,.svg,.png,.jpg,.jpeg,.gif,.bmp,.webp,image/*">
   <div class="sep"></div>
   <button class="btn active" id="btn-draw" onclick="setMode('draw')">✏️ Kast</button>
+  <button class="btn" id="btn-line" onclick="setMode('line')">─ Joon</button>
   <button class="btn" id="btn-select" onclick="setMode('select')">↖ Vali</button>
   <div class="sep"></div>
   <button class="btn" onclick="toggleLayers()">☰ Kihid</button>
@@ -224,6 +261,7 @@
   <span id="scale-info-display"></span>
   <div class="sep"></div>
   <button class="btn danger" onclick="clearBoxes()">🗑 Kustuta kastid</button>
+  <button class="btn danger" onclick="clearLines()">🧹 Kustuta joon</button>
   <button class="btn" onclick="exportJSON()">💾 Ekspordi</button>
   <label class="btn" for="json-input">📥 Impordi</label>
   <input type="file" id="json-input" accept=".json">
@@ -251,13 +289,15 @@
     <canvas id="grid-canvas"></canvas>
     <div id="canvas-inner">
       <div id="dvg-layer"></div>
+      <div id="line-layer"></div>
+      <button id="line-delete-marker" class="line-delete-marker" title="Kustuta joon">×</button>
       <div id="overlay"></div>
       <div id="draw-ghost"></div>
     </div>
     <div id="no-file-msg">
       <div class="big">🏭</div>
       <p>Ava DWG, DXF, SVG või pildifail</p>
-      <p style="margin-top:5px;font-size:11px;color:#333">Lohista = paneeri · Keri = zoom · ✏️ = joonista kast</p>
+      <p style="margin-top:5px;font-size:11px;color:#333">Lohista = paneeri · Keri = zoom · ✏️ = kast · ─ = joon</p>
     </div>
   </div>
 </div>
@@ -310,7 +350,9 @@ let panX = 0, panY = 0, scale = 1;
 let isPanning = false, panStart = null;
 let planW = 2000, planH = 1500, hasPlan = false;
 let machines = [], nextId = 1, selectedId = null;
+let lines = [], nextLineId = 1, selectedLineId = null;
 let isDrawing = false, drawStart = null;
+let isDrawingLine = false, lineStart = null;
 let isDragging = false, dragId = null, dragOff = null;
 let isResizing = false, resizeId = null, resizeOrig = null;
 let pendingBox = null;
@@ -328,6 +370,8 @@ let scalePxDist = 0;
 const wrap       = document.getElementById('canvas-wrap');
 const inner      = document.getElementById('canvas-inner');
 const dvgLayer   = document.getElementById('dvg-layer');
+const lineLayer  = document.getElementById('line-layer');
+const lineDeleteMarker = document.getElementById('line-delete-marker');
 const overlay    = document.getElementById('overlay');
 const ghost      = document.getElementById('draw-ghost');
 const nameEditor = document.getElementById('name-editor');
@@ -342,6 +386,13 @@ const gridEl     = document.getElementById('grid-display');
 const machineCountEl = document.getElementById('machine-count');
 const layerList  = document.getElementById('layer-list');
 const layerPanel = document.getElementById('layer-panel');
+
+if (lineDeleteMarker) {
+  lineDeleteMarker.addEventListener('click', ev => {
+    ev.stopPropagation();
+    if (selectedLineId !== null) deleteLine(selectedLineId);
+  });
+}
 
 // ── GRID ──
 function drawGrid() {
@@ -388,6 +439,8 @@ function applyTransform() {
   updateSvgStroke();
   // Re-render all boxes so scale-compensated text/borders update
   machines.forEach(m => renderBox(m));
+  renderAllLines();
+  updateLineDeleteMarker();
 }
 
 function updateSvgStroke() {
@@ -465,6 +518,7 @@ wrap.addEventListener('mousemove', e => {
     applyTransform(); return;
   }
   if (isDrawing) positionGhost(drawStart, clientToCanvas(e));
+  if (isDrawingLine && lineStart) positionLineGhost(lineStart, clientToCanvas(e));
   if (isDragging && dragId !== null) {
     const m = machines.find(m=>m.id===dragId);
     if (m) { const c=clientToCanvas(e); m.x=c.x-dragOff.x; m.y=c.y-dragOff.y; renderBox(m); }
@@ -516,6 +570,33 @@ wrap.addEventListener('mousedown', e => {
     return;
   }
 
+  if (mode === 'line') {
+    e.preventDefault();
+    const c = clientToCanvas(e);
+    if (!lineStart) {
+      isDrawingLine = true;
+      lineStart = c;
+      ghost.style.display = 'block';
+      ghost.classList.add('line-mode');
+      positionLineGhost(lineStart, lineStart);
+      setStatus('Klõpsa joone lõpp-punkt...','saving');
+    } else {
+      const dist = Math.hypot(c.x - lineStart.x, c.y - lineStart.y);
+      if (dist > 6 / scale) {
+        const line = { id: nextLineId++, x1: lineStart.x, y1: lineStart.y, x2: c.x, y2: c.y };
+        lines.push(line);
+        renderLine(line);
+        scheduleSave();
+        setTimeout(() => setStatus(''), 1200);
+      }
+      isDrawingLine = false;
+      lineStart = null;
+      ghost.style.display = 'none';
+      ghost.classList.remove('line-mode');
+    }
+    return;
+  }
+
   // In draw mode: left mouse on canvas = draw box
   if (mode === 'draw') {
     e.preventDefault();
@@ -561,6 +642,19 @@ window.addEventListener('mouseup', e => {
   isDragging = isResizing = false;
 });
 
+window.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && lineStart) {
+    isDrawingLine = false;
+    lineStart = null;
+    ghost.style.display = 'none';
+    ghost.classList.remove('line-mode');
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && selectedLineId !== null) {
+    e.preventDefault();
+    deleteLine(selectedLineId);
+  }
+});
+
 function positionGhost(a, b) {
   const x=Math.min(a.x,b.x), y=Math.min(a.y,b.y);
   const w=Math.abs(b.x-a.x), h=Math.abs(b.y-a.y);
@@ -579,15 +673,37 @@ function positionGhost(a, b) {
   }
 }
 
+function positionLineGhost(a, b) {
+  const x = Math.min(a.x, b.x);
+  const y = Math.min(a.y, b.y);
+  const w = Math.max(1, Math.abs(b.x - a.x));
+  const h = Math.max(1, Math.abs(b.y - a.y));
+  ghost.style.left = x + 'px';
+  ghost.style.top = y + 'px';
+  ghost.style.width = w + 'px';
+  ghost.style.height = h + 'px';
+  ghost.innerHTML = `<svg class="ghost-line" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><line x1="${a.x <= b.x ? 0 : w}" y1="${a.y <= b.y ? 0 : h}" x2="${a.x <= b.x ? w : 0}" y2="${a.y <= b.y ? h : 0}"/></svg>`;
+}
+
 // ── MODE ──
 function setMode(m) {
   mode = m;
   // Cancel scale mode if switching
   if (scaleMode) { scaleMode = false; scaleStart = null; wrap.classList.remove('scale-mode'); document.getElementById('btn-scale').classList.remove('active'); }
   document.getElementById('btn-draw').classList.toggle('active', m==='draw');
+  document.getElementById('btn-line').classList.toggle('active', m==='line');
   document.getElementById('btn-select').classList.toggle('active', m==='select');
   wrap.classList.toggle('drawing', m==='draw');
+  wrap.classList.toggle('line-mode', m==='line');
   wrap.classList.toggle('select-mode', m==='select');
+  if (m !== 'line') {
+    isDrawingLine = false;
+    lineStart = null;
+    ghost.style.display = 'none';
+    ghost.classList.remove('line-mode');
+  } else {
+    setStatus('Klõpsa joone alguspunkt...','saving');
+  }
   deselectAll();
 }
 
@@ -840,6 +956,81 @@ function renderBox(m) {
   }
 }
 
+function ensureLineSvg() {
+  let svg = lineLayer.querySelector('svg');
+  if (!svg) {
+    lineLayer.innerHTML = '<svg></svg>';
+    svg = lineLayer.querySelector('svg');
+  }
+  return svg;
+}
+
+function renderAllLines() {
+  const svg = ensureLineSvg();
+  svg.innerHTML = '';
+  lines.forEach(line => renderLine(line, svg));
+}
+
+function renderLine(line, svg = ensureLineSvg()) {
+  let el = svg.querySelector(`[data-line-id="${line.id}"]`);
+  if (!el) {
+    el = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    el.dataset.lineId = line.id;
+    svg.appendChild(el);
+  }
+  el.setAttribute('x1', line.x1);
+  el.setAttribute('y1', line.y1);
+  el.setAttribute('x2', line.x2);
+  el.setAttribute('y2', line.y2);
+  el.style.stroke = 'var(--accent)';
+  el.classList.toggle('selected', line.id === selectedLineId);
+  el.onclick = ev => {
+    ev.stopPropagation();
+    selectLine(line.id);
+  };
+  const invS = 1 / scale;
+  el.style.strokeWidth = Math.max(1.5, 2 * invS).toFixed(1) + 'px';
+}
+
+function selectLine(id) {
+  selectedLineId = id;
+  renderAllLines();
+  updateLineDeleteMarker();
+}
+
+function deleteLine(id) {
+  lines = lines.filter(line => line.id !== id);
+  if (selectedLineId === id) selectedLineId = null;
+  renderAllLines();
+  updateLineDeleteMarker();
+  scheduleSave();
+}
+
+function updateLineDeleteMarker() {
+  if (!lineDeleteMarker) return;
+  const line = lines.find(item => item.id === selectedLineId);
+  if (!line) {
+    lineDeleteMarker.style.display = 'none';
+    return;
+  }
+  const midX = (line.x1 + line.x2) / 2;
+  const midY = (line.y1 + line.y2) / 2;
+  const left = midX * scale + panX;
+  const top = midY * scale + panY;
+  lineDeleteMarker.style.left = (left - 9) + 'px';
+  lineDeleteMarker.style.top = (top - 9) + 'px';
+  lineDeleteMarker.style.display = 'block';
+}
+
+function clearLines() {
+  if (selectedLineId === null) {
+    alert('Vali kõigepealt joon, mida kustutada.');
+    return;
+  }
+  if (!confirm('Kustutada valitud joon?')) return;
+  deleteLine(selectedLineId);
+}
+
 function selectBox(id) {
   deselectAll(); selectedId=id;
   overlay.querySelector(`[data-id="${id}"]`)?.classList.add('selected');
@@ -861,6 +1052,13 @@ function clearBoxes() {
 
 wrap.addEventListener('click', e=>{
   if (mode==='select' && !e.target.closest('.mbox')) deselectAll();
+  if (!e.target.closest('#line-layer') && !e.target.closest('#line-delete-marker')) {
+    if (selectedLineId !== null) {
+      selectedLineId = null;
+      renderAllLines();
+      updateLineDeleteMarker();
+    }
+  }
 });
 
 // ── NAME EDITOR ──
@@ -947,7 +1145,7 @@ function scheduleSave(){
 async function doSave(){
   try {
     await fetch('/state',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({machines,nextId,planW,planH,svgData:currentSvgData,layerVisibility,pxPerMm})});;
+      body:JSON.stringify({machines,lines,nextId,nextLineId,planW,planH,svgData:currentSvgData,layerVisibility,pxPerMm})});;
     setStatus('✓ salvestatud','ok');
     setTimeout(()=>setStatus(''),2000);
   } catch(e){setStatus('❌ salvestamine ebaõnnestus','err');}
@@ -976,6 +1174,11 @@ async function loadSavedState(){
       machines.forEach(m=>createBoxEl(m));
       updateMachineCount();
     }
+    if (state.lines?.length) {
+      lines=state.lines;
+      nextLineId=state.nextLineId||(Math.max(...lines.map(l=>l.id))+1);
+      renderAllLines();
+    }
     if (hasPlan) fitView();
     setStatus('✓ laaditud','ok');
     setTimeout(()=>setStatus(''),2000);
@@ -984,7 +1187,7 @@ async function loadSavedState(){
 
 // ── EXPORT / IMPORT ──
 function exportJSON(){
-  const blob=new Blob([JSON.stringify({machines,planW,planH},null,2)],{type:'application/json'});
+  const blob=new Blob([JSON.stringify({machines,lines,planW,planH},null,2)],{type:'application/json'});
   const a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='masinate-asukohad.json'; a.click();
 }
 document.getElementById('json-input').addEventListener('change', e=>{
@@ -997,6 +1200,12 @@ document.getElementById('json-input').addEventListener('change', e=>{
         overlay.innerHTML=''; machines=data.machines;
         let maxId=0; machines.forEach(m=>{if(m.id>maxId)maxId=m.id; createBoxEl(m);}); nextId=maxId+1;
         updateMachineCount(); scheduleSave();
+      }
+      if(data.lines){
+        lines=data.lines;
+        nextLineId=lines.length ? Math.max(...lines.map(l=>l.id))+1 : 1;
+        renderAllLines();
+        scheduleSave();
       }
     } catch{alert('Vigane JSON fail');}
   };
